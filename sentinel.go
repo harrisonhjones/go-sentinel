@@ -1,3 +1,10 @@
+// Sentinel provides a convenient way to periodically call a function, handle the success or failure of that
+// function and then cleanup when done. Periodic triggering Sentinel happens automatically if desired and it can be
+// manually triggered when needed. All called functions are optional. Sentinel could be used to periodically ping a
+// web resource to determine if it has changed. If so, stop polling and perform some action and cleanup. If not, keep
+// polling. Alternately Sentinel could we used to indefinitely poll a remote resource, update a local cache, and only
+// cleanup if an error occurs multiple times.
+// TODO: More documentation
 package sentinel
 
 import (
@@ -7,10 +14,13 @@ import (
 	"github.com/pkg/errors"
 )
 
+// New returns a new inactive Sentinel which, when Started, is automatically triggered on the specified duration.
+// If a zero duration is provided the Sentinel will not automatically trigger and must be triggered manually.
 func New(ctx context.Context, duration time.Duration, functions Functions) *sentinel {
-	c := make(chan bool)
-	t := make(chan interface{})
+	c := make(chan bool, 1)
+	t := make(chan interface{}, 1)
 
+	// If duration is positive create a new ticker to automatically trigger the Sentinel when started.
 	var trigger <-chan time.Time
 	if duration > 0 {
 		trigger = time.NewTicker(duration).C
@@ -31,6 +41,8 @@ func New(ctx context.Context, duration time.Duration, functions Functions) *sent
 	}
 }
 
+// Start starts the Sentinel which allows it to be triggered automatically and/or manually.
+// If the Sentinel is already active an error will be returned.
 func (s *sentinel) Start() error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -45,6 +57,9 @@ func (s *sentinel) Start() error {
 	return nil
 }
 
+// Stop stops the Sentinel, triggering the provided FinallyFunction to run, and marks it inactive.
+// If the Sentinel is already inactive or stopping an error is returned.
+// The Sentinel can be restarted by calling the Start function again.
 func (s *sentinel) Stop() error {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -60,6 +75,7 @@ func (s *sentinel) Stop() error {
 	}
 }
 
+// IsActive returns with the active state of the Sentinel.
 func (s *sentinel) IsActive() bool {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
@@ -93,19 +109,31 @@ Loop:
 		s.Finally(s.ctx, reason)
 	}
 
-	// fmt.Printf("worker: signaling done\n")
+	// Cleanly shutdown the Sentinel
+	s.shutdown()
+}
+
+func (s *sentinel) shutdown() {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.active = false
+
+	// Drain the manual stop channel
 	select {
-	case s.stop <- true:
-		s.c <- true
+	case <-s.stop:
+	default:
+	}
+
+	// Mark the Sentinel as inactive
+	s.active = false
+
+	// Signal that the Sentinel has stopped
+	select {
+	case s.c <- true:
 	default:
 	}
 }
 
 func (s *sentinel) trigger(tReason TriggerReason, tData interface{}) bool {
-
 	if s.Every == nil {
 		// fmt.Printf("trigger: every is nil, signaling done\n")
 		return true

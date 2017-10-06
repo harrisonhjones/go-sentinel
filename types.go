@@ -6,24 +6,37 @@ import (
 	"time"
 )
 
+// TODO: Document
 const (
 	ManualStop StopReason = iota
 	AutomaticStop
 )
 
+// TODO: Document
 const (
 	InternalTrigger TriggerReason = iota
 	ExternalTrigger
 )
 
+// TODO: Document
 type StopReason int
+
+// TODO: Document
 type TriggerReason int
 
+// TODO: Document
 type EveryFunction func(ctx context.Context, tReason TriggerReason, tData interface{}) (data interface{}, done bool, err error)
+
+// TODO: Document
 type SuccessFunction func(ctx context.Context, data interface{}) (done bool)
+
+// TODO: Document
 type FailFunction func(ctx context.Context, err error) (done bool)
+
+// TODO: Document
 type FinallyFunction func(ctx context.Context, sReason StopReason)
 
+// TODO: Document
 type sentinel struct {
 	Functions
 	T chan<- interface{} // For manually triggering
@@ -38,6 +51,7 @@ type sentinel struct {
 	c        chan bool // Alias for C channel which can be written to internally
 }
 
+// TODO: Document
 type Functions struct {
 	Every   EveryFunction
 	Success SuccessFunction
