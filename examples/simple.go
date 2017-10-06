@@ -16,10 +16,9 @@ second. The finally function is called with indication that the sentinel was man
 func main() {
 	counter := 0
 
-	s := sentinel.New(context.TODO(), sentinel.Config{
-		Duration: time.Millisecond * 100,
-		Every: func(ctx context.Context) (data interface{}, done bool, err error) {
-			fmt.Printf("Every: %d\n", counter)
+	s := sentinel.New(context.TODO(), time.Second, sentinel.Functions{
+		Every: func(ctx context.Context, tReason sentinel.TriggerReason, tData interface{}) (data interface{}, done bool, err error) {
+			fmt.Printf("Every %d:\n\tReason: %v\n\tData: %+v\n", counter, tReason, tData)
 			counter++
 
 			if counter > 20 {
@@ -37,13 +36,8 @@ func main() {
 			fmt.Printf("Failure: %d\n", counter)
 			return false
 		},
-		Finally: func(ctx context.Context, stopped bool) {
-			fmt.Printf("Finally: %d\n", counter)
-			if stopped {
-				fmt.Printf("\tSentinel was manually stopped\n")
-				return
-			}
-			fmt.Printf("\tSentinel was automatically stopped\n")
+		Finally: func(ctx context.Context, sReason sentinel.StopReason) {
+			fmt.Printf("Finally %d:\n\tReason: %+v\n", counter, sReason)
 		},
 	})
 
@@ -63,6 +57,6 @@ func main() {
 		os.Exit(-2)
 	}
 
-	<-s.Done
+	<-s.C
 	fmt.Printf("Done!")
 }

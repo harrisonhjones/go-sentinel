@@ -6,27 +6,41 @@ import (
 	"time"
 )
 
-type EveryFunc func(ctx context.Context) (data interface{}, done bool, err error)
-type SuccessFunc func(ctx context.Context, data interface{}) (done bool)
-type FailFunc func(ctx context.Context, err error) (done bool)
-type FinallyFunc func(ctx context.Context, stopped bool)
+const (
+	ManualStop StopReason = iota
+	AutomaticStop
+)
+
+const (
+	InternalTrigger TriggerReason = iota
+	ExternalTrigger
+)
+
+type StopReason int
+type TriggerReason int
+
+type EveryFunction func(ctx context.Context, tReason TriggerReason, tData interface{}) (data interface{}, done bool, err error)
+type SuccessFunction func(ctx context.Context, data interface{}) (done bool)
+type FailFunction func(ctx context.Context, err error) (done bool)
+type FinallyFunction func(ctx context.Context, sReason StopReason)
 
 type sentinel struct {
-	Config
-	Done <-chan bool // When the worker is done true is pushed on this channel
+	Functions
+	T chan<- interface{} // For manually triggering
+	C <-chan bool        // When the worker is done true is pushed on this channel
 
-	ctx    context.Context // Context
-	lock   sync.Mutex      // Make access to internal data concurrently safe
-	ticker *time.Ticker    // Triggers the Every func
-	stop   chan bool       // Tells the worker to stop
-	active bool            // State of the sentinel
-	c      chan bool       // Alias for Done channel which can be written to internally
+	ctx      context.Context // Context
+	lock     sync.RWMutex    // Make access to internal data concurrently safe
+	iTrigger <-chan time.Time
+	stop     chan bool // Tells the worker to stop
+	active   bool      // State of the sentinel
+	t        chan interface{}
+	c        chan bool // Alias for C channel which can be written to internally
 }
 
-type Config struct {
-	Duration time.Duration
-	Every    EveryFunc
-	Success  SuccessFunc
-	Failure  FailFunc
-	Finally  FinallyFunc
+type Functions struct {
+	Every   EveryFunction
+	Success SuccessFunction
+	Failure FailFunction
+	Finally FinallyFunction
 }

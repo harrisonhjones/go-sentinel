@@ -7,15 +7,27 @@ import (
 	"github.com/pkg/errors"
 )
 
-func New(ctx context.Context, config Config) *sentinel {
+func New(ctx context.Context, duration time.Duration, functions Functions) *sentinel {
 	c := make(chan bool)
+	t := make(chan interface{})
+
+	var trigger <-chan time.Time
+	if duration > 0 {
+		trigger = time.NewTicker(duration).C
+	} else {
+		trigger = nil
+	}
+
 	return &sentinel{
-		Config: config,
-		active: false,
-		ticker: time.NewTicker(config.Duration),
-		stop:   make(chan bool, 1),
-		c:      c,
-		Done:   c,
+		Functions: functions,
+		T:         t,
+		C:         c,
+
+		active:   false,
+		iTrigger: trigger,
+		stop:     make(chan bool, 1),
+		t:        t,
+		c:        c,
 	}
 }
 
@@ -34,9 +46,8 @@ func (s *sentinel) Start() error {
 }
 
 func (s *sentinel) Stop() error {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 	if !s.active {
 		return errors.New("must be active to stop")
 	}
@@ -49,44 +60,68 @@ func (s *sentinel) Stop() error {
 	}
 }
 
+func (s *sentinel) IsActive() bool {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
+	return s.active
+}
+
 func (s *sentinel) work() {
-	var manuallyStopped = false
+	var reason StopReason = AutomaticStop
 Loop:
 	for {
 		select {
 		case <-s.stop:
 			// fmt.Printf("worker: signaled to stop\n")
-			manuallyStopped = true
+			reason = ManualStop
 			break Loop
-		case <-s.ticker.C:
-			// fmt.Printf("worker: tick\n")
-
-			data, done, err := s.Every(s.ctx)
-			if err != nil {
-				// fmt.Printf("worker: every returned with an error: %v\n", err)
-				if done := s.Failure(s.ctx, err); done == true {
-					// fmt.Printf("worker: failure signaled done\n")
-					break
-				}
-				continue Loop
-			}
-
-			if done := s.Success(s.ctx, data); done == true {
-				// fmt.Printf("worker: success signaled done\n")
+		case tData := <-s.iTrigger:
+			// fmt.Printf("worker: internal trigger\n")
+			if done := s.trigger(InternalTrigger, tData); done {
 				break Loop
 			}
-
-			if done == true {
-				// fmt.Printf("worker: every signaled done\n")
+		case tData := <-s.t:
+			// fmt.Printf("worker: external trigger\n")
+			if done := s.trigger(ExternalTrigger, tData); done {
 				break Loop
 			}
 		}
-
 	}
 
 	// fmt.Printf("worker: finally\n")
-	s.Finally(s.ctx, manuallyStopped)
+	s.Finally(s.ctx, reason)
 
 	// fmt.Printf("worker: signaling done\n")
-	s.c <- true
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.active = false
+	select {
+	case s.stop <- true:
+		s.c <- true
+	default:
+	}
+}
+
+func (s *sentinel) trigger(tReason TriggerReason, tData interface{}) bool {
+	data, done, err := s.Every(s.ctx, tReason, tData)
+	if err != nil {
+		// fmt.Printf("trigger: every returned with an error: %v\n", err)
+		if done := s.Failure(s.ctx, err); done == true {
+			// fmt.Printf("trigger: failure signaled done\n")
+			return true
+		}
+		return false
+	}
+
+	if done := s.Success(s.ctx, data); done == true {
+		// fmt.Printf("trigger: success signaled done\n")
+		return true
+	}
+
+	if done == true {
+		// fmt.Printf("trigger: every signaled done\n")
+		return true
+	}
+
+	return false
 }
