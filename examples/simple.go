@@ -32,13 +32,13 @@ func main() {
 			fmt.Printf("\tData: %v\n", data)
 			return false
 		},
-		Failure: func(ctx context.Context, err error) (done bool) {
+		/*Failure: func(ctx context.Context, err error) (done bool) {
 			fmt.Printf("Failure: %d\n", counter)
 			return false
 		},
 		Finally: func(ctx context.Context, sReason sentinel.StopReason) {
 			fmt.Printf("Finally %d:\n\tReason: %+v\n", counter, sReason)
-		},
+		},*/
 	})
 
 	fmt.Printf("Started the sentinel\n")
@@ -46,6 +46,8 @@ func main() {
 		fmt.Printf("failed to start: %v", err)
 		os.Exit(-1)
 	}
+
+	s.T <- "This is a manual trigger"
 
 	fmt.Printf("Sleeping for 1 second\n")
 	time.Sleep(time.Second * 1)

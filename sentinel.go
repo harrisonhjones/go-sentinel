@@ -88,8 +88,10 @@ Loop:
 		}
 	}
 
-	// fmt.Printf("worker: finally\n")
-	s.Finally(s.ctx, reason)
+	if s.Finally != nil {
+		// fmt.Printf("worker: finally\n")
+		s.Finally(s.ctx, reason)
+	}
 
 	// fmt.Printf("worker: signaling done\n")
 	s.lock.Lock()
@@ -103,14 +105,31 @@ Loop:
 }
 
 func (s *sentinel) trigger(tReason TriggerReason, tData interface{}) bool {
+
+	if s.Every == nil {
+		// fmt.Printf("trigger: every is nil, signaling done\n")
+		return true
+	}
+
 	data, done, err := s.Every(s.ctx, tReason, tData)
 	if err != nil {
 		// fmt.Printf("trigger: every returned with an error: %v\n", err)
+
+		if s.Failure == nil {
+			// fmt.Printf("trigger: failure is nil, signaling done\n")
+			return true
+		}
+
 		if done := s.Failure(s.ctx, err); done == true {
 			// fmt.Printf("trigger: failure signaled done\n")
 			return true
 		}
 		return false
+	}
+
+	if s.Success == nil {
+		// fmt.Printf("trigger: success is nil, signaling done\n")
+		return true
 	}
 
 	if done := s.Success(s.ctx, data); done == true {
